@@ -4,7 +4,7 @@
  * 使用 @react-three/fiber 构建渲染管线：
  *   normalize → Canvas → lights → model group → OrbitControls + Grid
  *
- * 坐标约定：DXF (x, y) → Three.js (x, 0, y)，高度沿 Y 轴。
+ * 坐标约定：DXF (x, y) → Three.js (x, 0, -y)，高度沿 Y 轴。DXF Y 朝 -Z。
  *
  * 自动处理：
  *  - 模型居中到原点

@@ -2,7 +2,7 @@
  * Three.js 几何体构建工具。
  *
  * 将解析后的 DXF 数据转换为 Three.js 渲染所需的位置/旋转/尺寸参数。
- * 坐标映射：DXF (x, y) → Three.js (x, 0, y)，高度沿 Y 轴。
+ * 坐标映射：DXF (x, y) → Three.js (x, 0, -y)，高度沿 Y 轴。DXF Y 朝 -Z（俯视屏幕下方）。
  *
  * NaN 防护策略：每一层（坐标→向量→四元数→尺寸）都做 isFinite 校验，
  * 确保传入 Three.js 几何体的参数不包含 NaN/Inf。
@@ -196,7 +196,7 @@ function to3D(p: Point2D, y = 0): [number, number, number] {
   if (!isFinitePoint(p) || !isFiniteNumber(y)) {
     return SAFE_ZERO_3D;
   }
-  return [p.x, y, p.y];
+  return [p.x, y, -p.y];
 }
 
 /**
@@ -216,7 +216,7 @@ function segmentQuaternion(dx: number, dy: number): THREE.Quaternion {
   }
 
   const invLen = 1 / Math.sqrt(sqLen);
-  const dir = new THREE.Vector3(dx * invLen, 0, dy * invLen);
+  const dir = new THREE.Vector3(dx * invLen, 0, -dy * invLen);
   const q = new THREE.Quaternion();
   q.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir);
   return q;
