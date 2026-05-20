@@ -214,19 +214,25 @@ function LightModel() {
   return <primitive object={scene.clone()} />;
 }
 
-function LightMeshes({
-  data,
-  unitScale,
-}: {
-  data: ParsedDXFData;
-  /** DXF mm→m 缩放因子，glTF 模型应用相同缩放保持比例一致 */
-  unitScale: number;
-}) {
+/**
+ * glTF 天线模型原始高度 = 200 单位（mm），缩放至目标高度（米）。
+ *
+ * 不使用 unitScale 的原因：glTF 模型始终为 mm，与 DXF 单位无关。
+ * 200mm = 0.2m 实际尺寸，但可视化中需要足够大才能被看见。
+ * 目标高度 1.5m 在摄像机距离 8m+ 时仍清晰可辨。
+ */
+const GLTF_MODEL_RAW_HEIGHT = 200; // mm
+const GLTF_TARGET_HEIGHT_M = 1.5;   // 米
+const ANTENNA_MODEL_SCALE = GLTF_TARGET_HEIGHT_M / GLTF_MODEL_RAW_HEIGHT; // 0.0075
+
+function LightMeshes({ data }: { data: ParsedDXFData }) {
   const meshes = useMemo(
     () => buildLightMeshParams(data.lights),
     [data.lights],
   );
   if (meshes.length === 0) return null;
+
+  const s = ANTENNA_MODEL_SCALE;
 
   return (
     <group>
@@ -234,7 +240,7 @@ function LightMeshes({
         <group
           key={m.key}
           position={m.position}
-          scale={[unitScale, unitScale, unitScale]}
+          scale={[s, s, s]}
         >
           <LightModel />
         </group>
@@ -251,12 +257,10 @@ function BuildingModel({
   data,
   wallThickness,
   showAuxiliary,
-  unitScale,
 }: {
   data: ParsedDXFData;
   wallThickness: number;
   showAuxiliary: boolean;
-  unitScale: number;
 }) {
   return (
     <group>
@@ -268,7 +272,7 @@ function BuildingModel({
       <DoorMeshes data={data} />
       <WindowMeshes data={data} />
       <AntennaMeshes data={data} />
-      <LightMeshes data={data} unitScale={unitScale} />
+      <LightMeshes data={data} />
     </group>
   );
 }
@@ -369,7 +373,6 @@ export function Scene3D({ data }: Scene3DProps) {
           data={normalizedData}
           wallThickness={wallThickness}
           showAuxiliary={showAuxiliary}
-          unitScale={unitScale}
         />
 
         {/* 地面网格 */}

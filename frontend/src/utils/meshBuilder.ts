@@ -103,9 +103,10 @@ export function computeModelBounds(data: ParsedDXFData): ModelBounds {
   for (const ant of data.antennas) {
     collectPoints([ant.position]);
   }
-  for (const light of data.lights) {
-    collectPoints([light.position]);
-  }
+  // 灯光设备不参与包围盒计算——它们是附属物，不应定义场景尺度
+  // for (const light of data.lights) {
+  //   collectPoints([light.position]);
+  // }
 
   const isEmpty = !Number.isFinite(minX) || !Number.isFinite(maxX);
 
