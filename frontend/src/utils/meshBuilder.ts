@@ -465,8 +465,11 @@ export interface LightMeshParams {
  * 为每个灯光设备计算位置和缩放。
  *
  * 位置：Y = wallHeight（灯装在墙顶）
- * 缩放：DXF 块宽度（已归一化为米）/ glTF 模型宽度（0.5m），
- *       使 glTF 模型尺寸匹配 DXF 中的块大小。
+ * 缩放：l.width 已归一化为米（如 500mm 块 → 0.5m）。
+ *       glTF 模型原始为 500 单位（mm）。
+ *       缩放 = l.width_m / 500  →  glTF 从 500 单位缩至 l.width 米。
+ *
+ *       例：500mm 块 → l.width=0.5m → scale=0.5/500=0.001 → 模型 0.5m 宽。
  */
 export function buildLightMeshParams(
   lights: LightData[],
@@ -476,9 +479,9 @@ export function buildLightMeshParams(
     .filter((l) => isFinitePoint(l.position) && isFiniteNumber(l.width))
     .map((l, i) => {
       // l.width 已由 normalizeDXFData 转换为米
-      // glTF 模型 = 500mm = 0.5m
-      const gltfWidthM = GLTF_MODEL_WIDTH_MM / 1000;
-      const scale = l.width > 0 ? l.width / gltfWidthM : 1.0;
+      // scale = l.width_meters / GLTF_MODEL_WIDTH_MM
+      // （500 单位 mm × 0.001 = 0.5m，即 l.width / 500 = 0.5/500 = 0.001）
+      const scale = l.width > 0 ? l.width / GLTF_MODEL_WIDTH_MM : 0.001;
 
       return {
         key: `light-${i}`,
