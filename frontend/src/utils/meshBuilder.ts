@@ -15,6 +15,7 @@ import type {
   DoorData,
   WindowData,
   AntennaData,
+  LightData,
   Point2D,
 } from "../types";
 
@@ -101,6 +102,9 @@ export function computeModelBounds(data: ParsedDXFData): ModelBounds {
   }
   for (const ant of data.antennas) {
     collectPoints([ant.position]);
+  }
+  for (const light of data.lights) {
+    collectPoints([light.position]);
   }
 
   const isEmpty = !Number.isFinite(minX) || !Number.isFinite(maxX);
@@ -196,6 +200,10 @@ export function normalizeDXFData(data: ParsedDXFData): NormalizedResult {
       antennas: data.antennas.map((a) => ({
         ...a,
         position: scalePoint(a.position),
+      })),
+      lights: data.lights.map((l) => ({
+        ...l,
+        position: scalePoint(l.position),
       })),
     },
     bounds,
@@ -434,6 +442,27 @@ export function buildAntennaMeshParams(
     .map((ant, i) => ({
       key: `antenna-${i}`,
       position: to3D(ant.position, ANTENNA_HEIGHT / 2),
+    }));
+}
+
+// ---------------------------------------------------------------------------
+// 灯光设备 → glTF 模型位置
+// ---------------------------------------------------------------------------
+
+export interface LightMeshParams {
+  position: [number, number, number];
+  key: string;
+}
+
+export function buildLightMeshParams(
+  lights: LightData[],
+): LightMeshParams[] {
+  return lights
+    .filter((l) => isFinitePoint(l.position))
+    .map((l, i) => ({
+      key: `light-${i}`,
+      // glTF 模型底部对齐地面
+      position: to3D(l.position, 0),
     }));
 }
 

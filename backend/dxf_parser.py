@@ -68,6 +68,14 @@ class AntennaData:
 
 
 @dataclass
+class LightData:
+    """灯光设备几何数据。"""
+
+    position: list[float]  # [x, y]
+    layer: str = "A-LIGHT"
+
+
+@dataclass
 class ParsedResult:
     """解析结果聚合。"""
 
@@ -75,6 +83,7 @@ class ParsedResult:
     doors: list[OpeningData] = field(default_factory=list)
     windows: list[OpeningData] = field(default_factory=list)
     antennas: list[AntennaData] = field(default_factory=list)
+    lights: list[LightData] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +95,7 @@ LAYER_KEYWORD_MAP: dict[str, str] = {
     "DOOR": "door",
     "WINDOW": "window",
     "ANTENNA": "antenna",
+    "A-LIGHT": "light",
 }
 
 # 默认尺寸（米）
@@ -381,6 +391,41 @@ def _handle_antenna_entity(
         )
 
 
+def _handle_light_entity(
+    entity: DXFEntity,
+    lights: list[LightData],
+) -> None:
+    """处理灯光图层的实体：提取位置点。"""
+    positions: list[list[float]] = []
+
+    if isinstance(entity, Insert):
+        ip = entity.dxf.insert
+        positions.append([ip[0], ip[1]])
+    elif isinstance(entity, LWPolyline):
+        positions.extend(_extract_points_from_lwpolyline(entity))
+    elif isinstance(entity, Polyline):
+        positions.extend(_extract_points_from_polyline(entity))
+    elif isinstance(entity, Line):
+        positions.extend(_extract_points_from_line(entity))
+    elif isinstance(entity, Circle):
+        positions.append([entity.dxf.center[0], entity.dxf.center[1]])
+    elif isinstance(entity, Arc):
+        positions.append([entity.dxf.center[0], entity.dxf.center[1]])
+    elif isinstance(entity, Point):
+        p = entity.dxf.location
+        positions.append([p[0], p[1]])
+    else:
+        return
+
+    for pos in positions:
+        lights.append(
+            LightData(
+                position=pos,
+                layer=_get_layer(entity),
+            )
+        )
+
+
 # ---------------------------------------------------------------------------
 # 公共 API
 # ---------------------------------------------------------------------------
@@ -404,6 +449,7 @@ def parse_dxf_file(file_path: str) -> dict:
 
     for entity in msp:
         layer_name: str = _get_layer(entity)
+        print(f"Processing entity type={entity.dxftype()} layer='{layer_name}'")
         entity_type = classify_layer(layer_name)
         if entity_type is None:
             continue
@@ -416,6 +462,8 @@ def parse_dxf_file(file_path: str) -> dict:
             _handle_opening_entity(entity, result.windows, "window")
         elif entity_type == "antenna":
             _handle_antenna_entity(entity, result.antennas)
+        elif entity_type == "light":
+            _handle_light_entity(entity, result.lights)
 
     return {
         "walls": [
@@ -444,5 +492,8 @@ def parse_dxf_file(file_path: str) -> dict:
         ],
         "antennas": [
             {"position": {"x": a.position[0], "y": a.position[1]}, "layer": a.layer} for a in result.antennas
+        ],
+        "lights": [
+            {"position": {"x": l.position[0], "y": l.position[1]}, "layer": l.layer} for l in result.lights
         ],
     }

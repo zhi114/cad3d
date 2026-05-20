@@ -36,12 +36,19 @@ export interface AntennaData {
   readonly layer: string;
 }
 
+/** 灯光设备数据 */
+export interface LightData {
+  readonly position: Point2D;
+  readonly layer: string;
+}
+
 /** 后端返回的完整解析结果 */
 export interface ParsedDXFData {
   readonly walls: WallData[];
   readonly doors: DoorData[];
   readonly windows: WindowData[];
   readonly antennas: AntennaData[];
+  readonly lights: LightData[];
 }
 
 /** 上传响应 */

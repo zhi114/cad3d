@@ -18,7 +18,7 @@
 
 import { useMemo, useState, useCallback } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Grid } from "@react-three/drei";
+import { OrbitControls, Grid, useGLTF } from "@react-three/drei";
 import type { ParsedDXFData } from "../types";
 import {
   buildWallMeshParams,
@@ -26,6 +26,7 @@ import {
   buildDoorMeshParams,
   buildWindowMeshParams,
   buildAntennaMeshParams,
+  buildLightMeshParams,
   normalizeDXFData,
   ANTENNA_RADIUS,
   ANTENNA_HEIGHT,
@@ -202,6 +203,36 @@ function AntennaMeshes({ data }: { data: ParsedDXFData }) {
 }
 
 // ---------------------------------------------------------------------------
+// 灯光设备 glTF 模型
+// ---------------------------------------------------------------------------
+
+/** 预加载 glTF 模型，避免每个实例重复加载 */
+function LightModel() {
+  const gltfPath = "/antenna/天线_result-0.gltf";
+  const { scene } = useGLTF(gltfPath);
+  // 克隆场景以避免共享引用问题
+  return <primitive object={scene.clone()} />;
+}
+
+function LightMeshes({ data }: { data: ParsedDXFData }) {
+  const meshes = useMemo(
+    () => buildLightMeshParams(data.lights),
+    [data.lights],
+  );
+  if (meshes.length === 0) return null;
+
+  return (
+    <group>
+      {meshes.map((m) => (
+        <group key={m.key} position={m.position}>
+          <LightModel />
+        </group>
+      ))}
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 聚合模型
 // ---------------------------------------------------------------------------
 
@@ -224,6 +255,7 @@ function BuildingModel({
       <DoorMeshes data={data} />
       <WindowMeshes data={data} />
       <AntennaMeshes data={data} />
+      <LightMeshes data={data} />
     </group>
   );
 }
@@ -258,7 +290,7 @@ export function Scene3D({ data }: Scene3DProps) {
 
   // 诊断日志：输出实体数量和尺度信息
   useMemo(() => {
-    const { walls, doors, windows, antennas } = normalizedData;
+    const { walls, doors, windows, antennas, lights } = normalizedData;
     const closedCount = walls.filter((w) => w.closed).length;
     const openCount = walls.filter((w) => !w.closed).length;
     console.log("[CAD3D] 模型诊断信息:", {
@@ -271,6 +303,7 @@ export function Scene3D({ data }: Scene3DProps) {
       门数量: doors.length,
       窗数量: windows.length,
       天线数量: antennas.length,
+      灯光设备数: lights.length,
       原始包围盒: bounds.isEmpty
         ? "空"
         : `${bounds.extentX.toFixed(0)} × ${bounds.extentZ.toFixed(0)}`,
