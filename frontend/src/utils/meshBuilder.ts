@@ -22,7 +22,7 @@ import type {
 // 常量 — 默认尺寸（米）
 // ---------------------------------------------------------------------------
 
-const WALL_THICKNESS = 0.2;
+const DEFAULT_WALL_THICKNESS = 0.2;
 const WINDOW_ELEVATION = 1.0;
 const ANTENNA_RADIUS = 0.05;
 const ANTENNA_HEIGHT = 0.3;
@@ -305,7 +305,10 @@ export interface WallMeshParams {
   key: string;
 }
 
-export function buildWallMeshParams(walls: WallData[]): WallMeshParams[] {
+export function buildWallMeshParams(
+  walls: WallData[],
+  thickness: number = DEFAULT_WALL_THICKNESS,
+): WallMeshParams[] {
   const result: WallMeshParams[] = [];
 
   for (let wi = 0; wi < walls.length; wi++) {
@@ -337,7 +340,7 @@ export function buildWallMeshParams(walls: WallData[]): WallMeshParams[] {
         key: `wall-${wi}-${i}`,
         position: to3D({ x: midX, y: midZ }, midY),
         quaternion: segmentQuaternion(dx, dy),
-        size: [length, wall.height, WALL_THICKNESS],
+        size: [length, wall.height, thickness],
       });
     }
   }

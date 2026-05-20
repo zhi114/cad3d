@@ -484,3 +484,67 @@ function edgeDirectionAtVertex(
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// 辅助线标签
+// ---------------------------------------------------------------------------
+
+export enum EdgeLabel {
+  Reliable = "reliable",
+  Isolated = "isolated",
+  VeryLong = "veryLong",
+  ShortDebris = "shortDebris",
+}
+
+export interface LabeledEdge extends MergedWallEdge {
+  label: EdgeLabel;
+  degree: number;
+}
+
+/**
+ * 根据连通度和长度对合并边打标签。
+ *
+ * - 可靠墙 (Reliable): 至少一端与其他边相连（度 ≥ 1）
+ * - 孤立线 (Isolated): 两端均无连接
+ * - 超长线 (VeryLong): 孤立且长度 > 模型对角线 × 0.8
+ * - 短线碎片 (ShortDebris): 孤立且长度 < 0.05m
+ */
+export function labelEdges(
+  merged: MergedWallEdge[],
+  graph: WallGraph,
+  modelDiagonal: number,
+): LabeledEdge[] {
+  const { adjacency } = graph;
+  const shortThreshold = 0.05;
+  const longThreshold = modelDiagonal * 0.8;
+
+  return merged.map((edge) => {
+    const degreeStart = adjacency.get(edge.startKey)?.size ?? 0;
+    const degreeEnd = adjacency.get(edge.endKey)?.size ?? 0;
+    const maxDegree = Math.max(degreeStart, degreeEnd);
+    const length = computeEdgeLength(edge.points);
+
+    let label: EdgeLabel;
+    if (maxDegree >= 1) {
+      label = EdgeLabel.Reliable;
+    } else if (length < shortThreshold) {
+      label = EdgeLabel.ShortDebris;
+    } else if (length > longThreshold) {
+      label = EdgeLabel.VeryLong;
+    } else {
+      label = EdgeLabel.Isolated;
+    }
+
+    return { ...edge, label, degree: maxDegree };
+  });
+}
+
+function computeEdgeLength(points: Point2D[]): number {
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const dx = points[i + 1].x - points[i].x;
+    const dy = points[i + 1].y - points[i].y;
+    total += Math.sqrt(dx * dx + dy * dy);
+  }
+  return total;
+}
