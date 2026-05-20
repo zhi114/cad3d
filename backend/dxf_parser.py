@@ -301,7 +301,7 @@ def _handle_opening_entity(
         # INSERT（块引用）— 使用插入点作为位置，缩放因子估算尺寸
         ip = entity.dxf.insert
         positions.append([ip[0], ip[1]])
-        rotation = entity.dxf.rotation if entity.dxf.rotation else 0.0
+        rotation = getattr(entity.dxf, "rotation", 0.0) or 0.0
     elif isinstance(entity, LWPolyline):
         pts = _extract_points_from_lwpolyline(entity)
         positions.extend(pts)
