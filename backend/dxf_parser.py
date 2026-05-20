@@ -72,6 +72,8 @@ class LightData:
     """灯光设备几何数据。"""
 
     position: list[float]  # [x, y]
+    width: float = 0.0  # DXF 块包围盒宽度
+    height: float = 0.0  # DXF 块包围盒高度
     layer: str = "A-LIGHT"
 
 
@@ -398,10 +400,14 @@ def _handle_light_entity(
 ) -> None:
     """处理灯光图层的实体：提取位置点。INSERT 实体解析块质心。"""
     positions: list[list[float]] = []
+    block_width = 0.0
 
     if isinstance(entity, Insert):
         centroid = _resolve_insert_centroid(doc, entity)
         positions.append(centroid)
+        # 记录块包围盒尺寸（取较大边作为参考宽度）
+        bw, bh = _compute_insert_size(doc, entity)
+        block_width = max(bw, bh)
     elif isinstance(entity, LWPolyline):
         positions.extend(_extract_points_from_lwpolyline(entity))
     elif isinstance(entity, Polyline):
@@ -422,6 +428,8 @@ def _handle_light_entity(
         lights.append(
             LightData(
                 position=pos,
+                width=block_width,
+                height=block_width,  # 各向同性缩放，宽高相同
                 layer=_get_layer(entity),
             )
         )
@@ -474,6 +482,50 @@ def _resolve_insert_centroid(doc, entity: DXFEntity) -> list[float]:
 
     centroid = _compute_centroid(positions)
     return [ip[0] + centroid[0], ip[1] + centroid[1]]
+
+
+def _compute_insert_size(doc, entity: DXFEntity) -> tuple[float, float]:
+    """
+    计算 INSERT（块引用）实体的几何包围盒尺寸。
+    返回 (width, height)，单位为 DXF 单位。
+    """
+    block_name = entity.dxf.name
+    block = doc.blocks.get(block_name)
+
+    if block is None:
+        return (0.0, 0.0)
+
+    positions: list[list[float]] = []
+    for sub_entity in block:
+        etype = sub_entity.dxftype()
+        if etype == "LINE":
+            positions.extend(_extract_points_from_line(sub_entity))
+        elif etype == "LWPOLYLINE":
+            positions.extend(_extract_points_from_lwpolyline(sub_entity))
+        elif etype == "POLYLINE":
+            positions.extend(_extract_points_from_polyline(sub_entity))
+        elif etype == "CIRCLE":
+            positions.append([sub_entity.dxf.center[0], sub_entity.dxf.center[1]])
+            # 圆的尺寸取直径
+        elif etype == "ARC":
+            positions.append([sub_entity.dxf.center[0], sub_entity.dxf.center[1]])
+        elif etype == "POINT":
+            positions.append([sub_entity.dxf.location[0], sub_entity.dxf.location[1]])
+        elif etype == "INSERT":
+            # 嵌套块 — 递归计算
+            nested_w, nested_h = _compute_insert_size(doc, sub_entity)
+            nested_pos = _resolve_insert_centroid(doc, sub_entity)
+            positions.append(nested_pos)
+            if nested_w > 0 or nested_h > 0:
+                # 用四个角点扩展包围盒
+                hw, hh = nested_w / 2, nested_h / 2
+                for dx, dy in [(-hw, -hh), (hw, -hh), (-hw, hh), (hw, hh)]:
+                    positions.append([nested_pos[0] + dx, nested_pos[1] + dy])
+
+    if not positions:
+        return (0.0, 0.0)
+
+    return _compute_bounding_box(positions)
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +595,12 @@ def parse_dxf_file(file_path: str) -> dict:
             {"position": {"x": a.position[0], "y": a.position[1]}, "layer": a.layer} for a in result.antennas
         ],
         "lights": [
-            {"position": {"x": l.position[0], "y": l.position[1]}, "layer": l.layer} for l in result.lights
+            {
+                "position": {"x": l.position[0], "y": l.position[1]},
+                "width": l.width,
+                "height": l.height,
+                "layer": l.layer,
+            }
+            for l in result.lights
         ],
     }

@@ -39,6 +39,8 @@ export interface AntennaData {
 /** 灯光设备数据 */
 export interface LightData {
   readonly position: Point2D;
+  readonly width: number;
+  readonly height: number;
   readonly layer: string;
 }
 

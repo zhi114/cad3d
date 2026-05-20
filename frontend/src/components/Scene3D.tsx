@@ -206,33 +206,31 @@ function AntennaMeshes({ data }: { data: ParsedDXFData }) {
 // 灯光设备 glTF 模型
 // ---------------------------------------------------------------------------
 
-/** 预加载 glTF 模型，避免每个实例重复加载 */
+/** 预加载 glTF 模型 */
 function LightModel() {
   const gltfPath = "/antenna/天线_result-0.gltf";
   const { scene } = useGLTF(gltfPath);
-  // 克隆场景以避免共享引用问题
   return <primitive object={scene.clone()} />;
 }
 
 /**
- * glTF 天线模型原始高度 = 200 单位（mm），缩放至目标高度（米）。
+ * 灯光设备渲染。
  *
- * 不使用 unitScale 的原因：glTF 模型始终为 mm，与 DXF 单位无关。
- * 200mm = 0.2m 实际尺寸，但可视化中需要足够大才能被看见。
- * 目标高度 1.5m 在摄像机距离 8m+ 时仍清晰可辨。
+ * 缩放：根据 DXF 块尺寸自适应，使 glTF 模型宽高匹配 DXF 中的表示。
+ * 位置：Y = 墙高，灯装在墙顶。
  */
-const GLTF_MODEL_RAW_HEIGHT = 200; // mm
-const GLTF_TARGET_HEIGHT_M = 1.5;   // 米
-const ANTENNA_MODEL_SCALE = GLTF_TARGET_HEIGHT_M / GLTF_MODEL_RAW_HEIGHT; // 0.0075
-
-function LightMeshes({ data }: { data: ParsedDXFData }) {
+function LightMeshes({
+  data,
+  wallHeight,
+}: {
+  data: ParsedDXFData;
+  wallHeight: number;
+}) {
   const meshes = useMemo(
-    () => buildLightMeshParams(data.lights),
-    [data.lights],
+    () => buildLightMeshParams(data.lights, wallHeight),
+    [data.lights, wallHeight],
   );
   if (meshes.length === 0) return null;
-
-  const s = ANTENNA_MODEL_SCALE;
 
   return (
     <group>
@@ -240,7 +238,7 @@ function LightMeshes({ data }: { data: ParsedDXFData }) {
         <group
           key={m.key}
           position={m.position}
-          scale={[s, s, s]}
+          scale={[m.scale, m.scale, m.scale]}
         >
           <LightModel />
         </group>
@@ -252,6 +250,8 @@ function LightMeshes({ data }: { data: ParsedDXFData }) {
 // ---------------------------------------------------------------------------
 // 聚合模型
 // ---------------------------------------------------------------------------
+
+const DEFAULT_WALL_HEIGHT = 3.0;
 
 function BuildingModel({
   data,
@@ -272,7 +272,7 @@ function BuildingModel({
       <DoorMeshes data={data} />
       <WindowMeshes data={data} />
       <AntennaMeshes data={data} />
-      <LightMeshes data={data} />
+      <LightMeshes data={data} wallHeight={DEFAULT_WALL_HEIGHT} />
     </group>
   );
 }
