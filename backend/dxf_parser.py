@@ -250,7 +250,7 @@ def _is_closed_polyline(points: list[list[float]], threshold: float = CLOSED_THR
         return False
     dx = points[0][0] - points[-1][0]
     dy = points[0][1] - points[-1][1]
-    return (dx * dx + dy * dy) <= threshold * threshold
+    return bool((dx * dx + dy * dy) <= threshold * threshold)
 
 
 # ---------------------------------------------------------------------------
