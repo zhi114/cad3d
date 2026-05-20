@@ -9,6 +9,7 @@ export interface WallData {
   readonly points: Point2D[];
   readonly height: number;
   readonly layer: string;
+  readonly closed: boolean;
 }
 
 /** 门数据 */

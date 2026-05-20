@@ -9,7 +9,14 @@
  */
 
 import * as THREE from "three";
-import type { ParsedDXFData, WallData, DoorData, WindowData, AntennaData, Point2D } from "../types";
+import type {
+  ParsedDXFData,
+  WallData,
+  DoorData,
+  WindowData,
+  AntennaData,
+  Point2D,
+} from "../types";
 
 // ---------------------------------------------------------------------------
 // 常量 — 默认尺寸（米）
@@ -24,11 +31,11 @@ const ANTENNA_HEIGHT = 0.3;
 // 基础校验
 // ---------------------------------------------------------------------------
 
-function isFiniteNumber(v: number): boolean {
+export function isFiniteNumber(v: number): boolean {
   return typeof v === "number" && Number.isFinite(v);
 }
 
-function isFinitePoint(p: Point2D): boolean {
+export function isFinitePoint(p: Point2D): boolean {
   return isFiniteNumber(p.x) && isFiniteNumber(p.y);
 }
 
@@ -100,9 +107,15 @@ export function computeModelBounds(data: ParsedDXFData): ModelBounds {
 
   if (isEmpty) {
     return {
-      minX: 0, maxX: 0, minZ: 0, maxZ: 0,
-      centerX: 0, centerZ: 0,
-      extentX: 0, extentZ: 0, maxExtent: 0,
+      minX: 0,
+      maxX: 0,
+      minZ: 0,
+      maxZ: 0,
+      centerX: 0,
+      centerZ: 0,
+      extentX: 0,
+      extentZ: 0,
+      maxExtent: 0,
       isEmpty: true,
     };
   }
@@ -111,7 +124,10 @@ export function computeModelBounds(data: ParsedDXFData): ModelBounds {
   const extentZ = maxZ - minZ;
 
   return {
-    minX, maxX, minZ, maxZ,
+    minX,
+    maxX,
+    minZ,
+    maxZ,
     centerX: (minX + maxX) / 2,
     centerZ: (minZ + maxZ) / 2,
     extentX,
@@ -223,7 +239,63 @@ function segmentQuaternion(dx: number, dy: number): THREE.Quaternion {
 }
 
 // ---------------------------------------------------------------------------
-// 墙体 → 分段 Box
+// 闭合轮廓墙体 → ExtrudeGeometry
+// ---------------------------------------------------------------------------
+
+export interface ClosedWallMeshParams {
+  position: [number, number, number];
+  geometry: THREE.ExtrudeGeometry;
+  key: string;
+}
+
+/**
+ * 为闭合轮廓墙体构建 ExtrudeGeometry。
+ *
+ * 管线：points[] → Shape (XZ 平面) → ExtrudeGeometry (沿 Y 轴挤出)
+ *
+ * 每个闭合轮廓输出一个完整的挤实体，无接缝、无重叠。
+ * wall.points 已通过 normalizeDXFData 居中并缩放，可直接使用。
+ */
+export function buildClosedWallMeshParams(walls: WallData[]): ClosedWallMeshParams[] {
+  const result: ClosedWallMeshParams[] = [];
+
+  for (let wi = 0; wi < walls.length; wi++) {
+    const wall = walls[wi];
+    if (!wall.closed) continue;
+    if (wall.points.length < 3) continue;
+
+    const shape = new THREE.Shape();
+    const first = wall.points[0];
+    if (!isFinitePoint(first)) continue;
+
+    shape.moveTo(first.x, first.y);
+    for (let i = 1; i < wall.points.length; i++) {
+      const p = wall.points[i];
+      if (!isFinitePoint(p)) continue;
+      shape.lineTo(p.x, p.y);
+    }
+    shape.closePath();
+
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      steps: 1,
+      depth: wall.height,
+      bevelEnabled: false,
+    });
+    // ExtrudeGeometry 默认沿 +Z 挤出，需旋转使高度沿 Y 轴
+    geometry.rotateX(-Math.PI / 2);
+
+    result.push({
+      key: `closed-wall-${wi}`,
+      position: [0, 0, 0],
+      geometry,
+    });
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// 开放中心线墙体 → 分段 Box
 // ---------------------------------------------------------------------------
 
 export interface WallMeshParams {
@@ -238,6 +310,7 @@ export function buildWallMeshParams(walls: WallData[]): WallMeshParams[] {
 
   for (let wi = 0; wi < walls.length; wi++) {
     const wall = walls[wi];
+    if (wall.closed) continue; // 闭合轮廓由 buildClosedWallMeshParams 处理
     const pts = wall.points;
 
     for (let i = 0; i < pts.length - 1; i++) {
@@ -313,7 +386,9 @@ export function buildDoorMeshParams(doors: DoorData[]): OpeningMeshParams[] {
 // 窗 → Box
 // ---------------------------------------------------------------------------
 
-export function buildWindowMeshParams(windows: WindowData[]): OpeningMeshParams[] {
+export function buildWindowMeshParams(
+  windows: WindowData[],
+): OpeningMeshParams[] {
   const depth = 0.1;
 
   return windows

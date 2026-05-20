@@ -18,6 +18,7 @@ import { OrbitControls, Grid } from "@react-three/drei";
 import type { ParsedDXFData } from "../types";
 import {
   buildWallMeshParams,
+  buildClosedWallMeshParams,
   buildDoorMeshParams,
   buildWindowMeshParams,
   buildAntennaMeshParams,
@@ -31,17 +32,26 @@ import {
 // ---------------------------------------------------------------------------
 
 function WallMeshes({ data }: { data: ParsedDXFData }) {
-  const meshes = useMemo(() => buildWallMeshParams(data.walls), [data.walls]);
-  if (meshes.length === 0) return null;
+  const closedWalls = useMemo(
+    () => buildClosedWallMeshParams(data.walls),
+    [data.walls],
+  );
+  const openMeshes = useMemo(
+    () => buildWallMeshParams(data.walls),
+    [data.walls],
+  );
+
+  if (closedWalls.length === 0 && openMeshes.length === 0) return null;
 
   return (
     <group>
-      {meshes.map((m) => (
-        <mesh
-          key={m.key}
-          position={m.position}
-          quaternion={m.quaternion}
-        >
+      {closedWalls.map((m) => (
+        <mesh key={m.key} position={m.position} geometry={m.geometry}>
+          <meshStandardMaterial color="#d4c8b8" roughness={0.8} />
+        </mesh>
+      ))}
+      {openMeshes.map((m) => (
+        <mesh key={m.key} position={m.position} quaternion={m.quaternion}>
           <boxGeometry args={m.size} />
           <meshStandardMaterial color="#d4c8b8" roughness={0.8} />
         </mesh>
@@ -57,11 +67,7 @@ function DoorMeshes({ data }: { data: ParsedDXFData }) {
   return (
     <group>
       {meshes.map((m) => (
-        <mesh
-          key={m.key}
-          position={m.position}
-          quaternion={m.quaternion}
-        >
+        <mesh key={m.key} position={m.position} quaternion={m.quaternion}>
           <boxGeometry args={m.size} />
           <meshStandardMaterial color={m.color} roughness={0.6} />
         </mesh>
@@ -80,11 +86,7 @@ function WindowMeshes({ data }: { data: ParsedDXFData }) {
   return (
     <group>
       {meshes.map((m) => (
-        <mesh
-          key={m.key}
-          position={m.position}
-          quaternion={m.quaternion}
-        >
+        <mesh key={m.key} position={m.position} quaternion={m.quaternion}>
           <boxGeometry args={m.size} />
           <meshStandardMaterial
             color={m.color}
@@ -143,10 +145,11 @@ interface Scene3DProps {
 }
 
 export function Scene3D({ data }: Scene3DProps) {
-  const { data: normalizedData, bounds, unitScale } = useMemo(
-    () => normalizeDXFData(data),
-    [data],
-  );
+  const {
+    data: normalizedData,
+    bounds,
+    unitScale,
+  } = useMemo(() => normalizeDXFData(data), [data]);
 
   // 诊断日志：输出实体数量和尺度信息，用于排查模型不可见问题
   useMemo(() => {
@@ -168,9 +171,7 @@ export function Scene3D({ data }: Scene3DProps) {
   }, [normalizedData, bounds, unitScale]);
 
   // 根据模型大小动态计算场景参数
-  const modelSize = bounds.isEmpty
-    ? 10
-    : (bounds.maxExtent * unitScale);
+  const modelSize = bounds.isEmpty ? 10 : bounds.maxExtent * unitScale;
 
   // 摄像机距离 = 模型对角线 × 1.5，最少 8 米
   const cameraDist = Math.max(modelSize * 1.5, 8);
