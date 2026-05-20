@@ -45,6 +45,7 @@ class WallSegment:
     points: list[list[float]]  # [[x, y], ...] 二维顶点列表
     height: float = 3.0  # 默认墙体高度（米）
     layer: str = "WALL"
+    closed: bool = False  # 是否为闭合多边形轮廓
 
 
 @dataclass
@@ -94,6 +95,9 @@ DEFAULT_DOOR_HEIGHT = 2.1
 DEFAULT_WINDOW_WIDTH = 1.2
 DEFAULT_WINDOW_HEIGHT = 1.0
 DEFAULT_WINDOW_ELEVATION = 1.0
+
+# 闭合轮廓检测容差（CAD 单位）
+CLOSED_THRESHOLD = 0.01
 
 
 def _get_layer(entity: DXFEntity) -> str:
@@ -240,6 +244,15 @@ def _compute_rotation_from_line(start: list[float], end: list[float]) -> float:
     return angle if math.isfinite(angle) else 0.0
 
 
+def _is_closed_polyline(points: list[list[float]], threshold: float = CLOSED_THRESHOLD) -> bool:
+    """检测点链是否闭合：点数 ≥ 3 且首尾距离 ≤ 容差。"""
+    if len(points) < 3:
+        return False
+    dx = points[0][0] - points[-1][0]
+    dy = points[0][1] - points[-1][1]
+    return (dx * dx + dy * dy) <= threshold * threshold
+
+
 # ---------------------------------------------------------------------------
 # 实体处理器
 # ---------------------------------------------------------------------------
@@ -270,6 +283,7 @@ def _handle_wall_entity(entity: DXFEntity, walls: list[WallSegment]) -> None:
             points=points,
             height=DEFAULT_WALL_HEIGHT,
             layer=_get_layer(entity),
+            closed=_is_closed_polyline(points),
         )
     )
 
@@ -405,7 +419,7 @@ def parse_dxf_file(file_path: str) -> dict:
 
     return {
         "walls": [
-            {"points": [{"x": p[0], "y": p[1]} for p in w.points], "height": w.height, "layer": w.layer}
+            {"points": [{"x": p[0], "y": p[1]} for p in w.points], "height": w.height, "layer": w.layer, "closed": w.closed}
             for w in result.walls
         ],
         "doors": [
