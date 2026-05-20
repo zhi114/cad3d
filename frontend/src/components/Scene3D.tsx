@@ -214,7 +214,14 @@ function LightModel() {
   return <primitive object={scene.clone()} />;
 }
 
-function LightMeshes({ data }: { data: ParsedDXFData }) {
+function LightMeshes({
+  data,
+  unitScale,
+}: {
+  data: ParsedDXFData;
+  /** DXF mm→m 缩放因子，glTF 模型应用相同缩放保持比例一致 */
+  unitScale: number;
+}) {
   const meshes = useMemo(
     () => buildLightMeshParams(data.lights),
     [data.lights],
@@ -224,7 +231,11 @@ function LightMeshes({ data }: { data: ParsedDXFData }) {
   return (
     <group>
       {meshes.map((m) => (
-        <group key={m.key} position={m.position}>
+        <group
+          key={m.key}
+          position={m.position}
+          scale={[unitScale, unitScale, unitScale]}
+        >
           <LightModel />
         </group>
       ))}
@@ -240,10 +251,12 @@ function BuildingModel({
   data,
   wallThickness,
   showAuxiliary,
+  unitScale,
 }: {
   data: ParsedDXFData;
   wallThickness: number;
   showAuxiliary: boolean;
+  unitScale: number;
 }) {
   return (
     <group>
@@ -255,7 +268,7 @@ function BuildingModel({
       <DoorMeshes data={data} />
       <WindowMeshes data={data} />
       <AntennaMeshes data={data} />
-      <LightMeshes data={data} />
+      <LightMeshes data={data} unitScale={unitScale} />
     </group>
   );
 }
@@ -356,6 +369,7 @@ export function Scene3D({ data }: Scene3DProps) {
           data={normalizedData}
           wallThickness={wallThickness}
           showAuxiliary={showAuxiliary}
+          unitScale={unitScale}
         />
 
         {/* 地面网格 */}
