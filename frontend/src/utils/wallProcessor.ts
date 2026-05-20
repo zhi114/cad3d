@@ -280,3 +280,207 @@ function buildMergedPoints(
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// 接头分析
+// ---------------------------------------------------------------------------
+
+export type JunctionType = "endpoint" | "l-corner" | "t-junction";
+
+export interface Junction {
+  vertexKey: string;
+  position: Point2D;
+  type: JunctionType;
+  connectedEdges: string[];
+}
+
+/**
+ * 分析合并后每条边端点的接头类型。
+ *
+ * 查找每边的 start/end 顶点在图中的邻接信息：
+ * - 度 ≤ 1 → endpoint
+ * - 度 = 2 → l-corner
+ * - 度 ≥ 3 → t-junction
+ */
+export function detectJunctions(
+  merged: MergedWallEdge[],
+  graph: WallGraph,
+): Map<string, Junction> {
+  const junctions = new Map<string, Junction>();
+  const { vertices, adjacency } = graph;
+
+  // 收集合并边涉及的所有原始 edge IDs
+  const allEdgeIds = new Set<string>();
+  for (const edge of merged) {
+    for (const id of edge.sourceEdgeIds) {
+      allEdgeIds.add(id);
+    }
+  }
+
+  const processed = new Set<string>();
+
+  for (const edge of merged) {
+    for (const vKey of [edge.startKey, edge.endKey]) {
+      if (processed.has(vKey)) continue;
+      processed.add(vKey);
+
+      const vertex = vertices.get(vKey);
+      if (!vertex) continue;
+
+      const connected = adjacency.get(vKey);
+      const relevantEdges = new Set<string>();
+      if (connected) {
+        for (const eId of connected) {
+          if (allEdgeIds.has(eId)) {
+            relevantEdges.add(eId);
+          }
+        }
+      }
+      const degree = relevantEdges.size;
+
+      let type: JunctionType;
+      if (degree <= 1) {
+        type = "endpoint";
+      } else if (degree === 2) {
+        type = "l-corner";
+      } else {
+        type = "t-junction";
+      }
+
+      junctions.set(vKey, {
+        vertexKey: vKey,
+        position: { x: vertex.x, y: vertex.y },
+        type,
+        connectedEdges: [...relevantEdges],
+      });
+    }
+  }
+
+  return junctions;
+}
+
+// ---------------------------------------------------------------------------
+// 斜接计算
+// ---------------------------------------------------------------------------
+
+export interface MiteredWallSegment {
+  id: string;
+  points: Point2D[];
+  startTrim: number;
+  endTrim: number;
+  height: number;
+  layer: string;
+  halfThickness: number;
+}
+
+/**
+ * 为所有接头计算斜接截断距离。
+ *
+ * L 角算法：
+ *   d1, d2 = 两条边在顶点处的方向向量（从顶点向外）
+ *   cosθ = d1·d2, sinθ = |d1×d2|
+ *   miterDist = halfThickness × (1 + cosθ) / sinθ
+ *
+ *   若 miterDist > halfThickness × 3 → 退化为直切。
+ *
+ * 端点和 T 角：直切，trim = halfThickness。
+ *
+ * 返回值: Map<edge.id, {startTrim, endTrim}>
+ */
+export function computeMiterTrims(
+  merged: MergedWallEdge[],
+  junctions: Map<string, Junction>,
+  halfThickness: number,
+): Map<string, { start: number; end: number }> {
+  const trims = new Map<string, { start: number; end: number }>();
+
+  for (const edge of merged) {
+    const startJunction = junctions.get(edge.startKey);
+    const endJunction = junctions.get(edge.endKey);
+
+    let startTrim = 0;
+    let endTrim = 0;
+
+    if (startJunction?.type === "endpoint") {
+      startTrim = halfThickness;
+    } else if (startJunction?.type === "l-corner") {
+      startTrim = computeLCornerTrim(
+        edge, edge.startKey, merged, halfThickness,
+      );
+    } else if (startJunction?.type === "t-junction") {
+      startTrim = halfThickness;
+    }
+
+    if (endJunction?.type === "endpoint") {
+      endTrim = halfThickness;
+    } else if (endJunction?.type === "l-corner") {
+      endTrim = computeLCornerTrim(
+        edge, edge.endKey, merged, halfThickness,
+      );
+    } else if (endJunction?.type === "t-junction") {
+      endTrim = halfThickness;
+    }
+
+    trims.set(edge.id, { start: startTrim, end: endTrim });
+  }
+
+  return trims;
+}
+
+/** 计算单条边在 L 角顶点的斜接距离 */
+function computeLCornerTrim(
+  edge: MergedWallEdge,
+  atVertexKey: string,
+  allEdges: MergedWallEdge[],
+  halfThickness: number,
+): number {
+  const otherEdge = allEdges.find(
+    (e) =>
+      e.id !== edge.id &&
+      (e.startKey === atVertexKey || e.endKey === atVertexKey),
+  );
+  if (!otherEdge) return halfThickness;
+
+  const d1 = edgeDirectionAtVertex(edge, atVertexKey);
+  const d2 = edgeDirectionAtVertex(otherEdge, atVertexKey);
+  if (!d1 || !d2) return halfThickness;
+
+  const dot = d1.x * d2.x + d1.y * d2.y;
+  const sinAngle = d1.x * d2.y - d1.y * d2.x;
+
+  if (Math.abs(sinAngle) < 1e-6) {
+    return 0;
+  }
+
+  const miterDist = halfThickness * (1 + dot) / Math.abs(sinAngle);
+  return Math.min(Math.max(miterDist, 0), halfThickness * 3);
+}
+
+/** 计算合并边在指定顶点处从顶点向外的方向向量 */
+function edgeDirectionAtVertex(
+  edge: MergedWallEdge,
+  atKey: string,
+): Point2D | null {
+  const pts = edge.points;
+  if (pts.length < 2) return null;
+
+  const firstKey = vertexKey(pts[0]);
+  const lastKey = vertexKey(pts[pts.length - 1]);
+
+  if (firstKey === atKey) {
+    return { x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y };
+  }
+  if (lastKey === atKey) {
+    const len = pts.length;
+    return { x: pts[len - 2].x - pts[len - 1].x, y: pts[len - 2].y - pts[len - 1].y };
+  }
+
+  // 合并后的多段线顶点可能在中间位置
+  for (let i = 1; i < pts.length - 1; i++) {
+    const key = vertexKey(pts[i]);
+    if (key === atKey) {
+      return { x: pts[i - 1].x - pts[i].x, y: pts[i - 1].y - pts[i].y };
+    }
+  }
+  return null;
+}
