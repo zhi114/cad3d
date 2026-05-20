@@ -394,13 +394,14 @@ def _handle_antenna_entity(
 def _handle_light_entity(
     entity: DXFEntity,
     lights: list[LightData],
+    doc,
 ) -> None:
-    """处理灯光图层的实体：提取位置点。"""
+    """处理灯光图层的实体：提取位置点。INSERT 实体解析块质心。"""
     positions: list[list[float]] = []
 
     if isinstance(entity, Insert):
-        ip = entity.dxf.insert
-        positions.append([ip[0], ip[1]])
+        centroid = _resolve_insert_centroid(doc, entity)
+        positions.append(centroid)
     elif isinstance(entity, LWPolyline):
         positions.extend(_extract_points_from_lwpolyline(entity))
     elif isinstance(entity, Polyline):
@@ -427,6 +428,55 @@ def _handle_light_entity(
 
 
 # ---------------------------------------------------------------------------
+# 块引用辅助
+# ---------------------------------------------------------------------------
+
+
+def _resolve_insert_centroid(doc, entity: DXFEntity) -> list[float]:
+    """
+    计算 INSERT（块引用）实体的几何中心位置。
+
+    仅使用插入点会丢失块内部几何体的偏移。
+    此函数解析块定义，计算块内几何体的质心，返回插入点 + 块内偏移。
+
+    若块无法解析或为空，降级返回插入点。
+    """
+    block_name = entity.dxf.name
+    block = doc.blocks.get(block_name)
+
+    if block is None:
+        ip = entity.dxf.insert
+        return [ip[0], ip[1]]
+
+    positions: list[list[float]] = []
+    for sub_entity in block:
+        etype = sub_entity.dxftype()
+        if etype == "LINE":
+            positions.extend(_extract_points_from_line(sub_entity))
+        elif etype == "LWPOLYLINE":
+            positions.extend(_extract_points_from_lwpolyline(sub_entity))
+        elif etype == "POLYLINE":
+            positions.extend(_extract_points_from_polyline(sub_entity))
+        elif etype == "CIRCLE":
+            positions.append([sub_entity.dxf.center[0], sub_entity.dxf.center[1]])
+        elif etype == "ARC":
+            positions.append([sub_entity.dxf.center[0], sub_entity.dxf.center[1]])
+        elif etype == "POINT":
+            positions.append([sub_entity.dxf.location[0], sub_entity.dxf.location[1]])
+        elif etype == "INSERT":
+            # 嵌套块引用，递归解析
+            nested = _resolve_insert_centroid(doc, sub_entity)
+            positions.append(nested)
+
+    ip = entity.dxf.insert
+    if not positions:
+        return [ip[0], ip[1]]
+
+    centroid = _compute_centroid(positions)
+    return [ip[0] + centroid[0], ip[1] + centroid[1]]
+
+
+# ---------------------------------------------------------------------------
 # 公共 API
 # ---------------------------------------------------------------------------
 
@@ -449,7 +499,6 @@ def parse_dxf_file(file_path: str) -> dict:
 
     for entity in msp:
         layer_name: str = _get_layer(entity)
-        print(f"Processing entity type={entity.dxftype()} layer='{layer_name}'")
         entity_type = classify_layer(layer_name)
         if entity_type is None:
             continue
@@ -463,7 +512,7 @@ def parse_dxf_file(file_path: str) -> dict:
         elif entity_type == "antenna":
             _handle_antenna_entity(entity, result.antennas)
         elif entity_type == "light":
-            _handle_light_entity(entity, result.lights)
+            _handle_light_entity(entity, result.lights, doc)
 
     return {
         "walls": [
