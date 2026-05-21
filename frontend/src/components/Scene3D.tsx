@@ -76,6 +76,7 @@ function WallMeshes({
       height: e.height,
       layer: e.layer,
       closed: false,
+      thickness: 0,
     }));
 
     return {
@@ -98,6 +99,7 @@ function WallMeshes({
       height: e.height,
       layer: e.layer,
       closed: false,
+      thickness: 0,
     }));
     return buildWallMeshParams(auxWalls, wallThickness);
   }, [auxiliaryEdges, showAuxiliary, wallThickness]);

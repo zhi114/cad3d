@@ -184,6 +184,7 @@ export function normalizeDXFData(data: ParsedDXFData): NormalizedResult {
       walls: data.walls.map((w) => ({
         ...w,
         points: w.points.map(scalePoint),
+        thickness: w.thickness * unitScale,  // 墙厚随 DXF 单位缩放
         // height 不缩放——已在后端设为米
       })),
       doors: data.doors.map((d) => ({
@@ -351,7 +352,8 @@ export function buildWallMeshParams(
         key: `wall-${wi}-${i}`,
         position: to3D({ x: midX, y: midZ }, midY),
         quaternion: segmentQuaternion(dx, dy),
-        size: [length, wall.height, thickness],
+        // 墙体厚度：优先使用后端检测值，否则用全局默认
+        size: [length, wall.height, wall.thickness > 0 ? wall.thickness : thickness],
       });
     }
   }

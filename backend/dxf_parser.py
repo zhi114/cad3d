@@ -46,6 +46,7 @@ class WallSegment:
     height: float = 3.0  # 默认墙体高度（米）
     layer: str = "WALL"
     closed: bool = False  # 是否为闭合多边形轮廓
+    thickness: float = 0.0  # 墙厚（CAD 单位），0 表示使用默认值
 
 
 @dataclass
@@ -529,6 +530,273 @@ def _compute_insert_size(doc, entity: DXFEntity) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
+# 墙体后处理 — 平行线检测、厚度计算、闭合
+# ---------------------------------------------------------------------------
+
+# 平行线判定容差
+PARALLEL_ANGLE_TOLERANCE = 0.001  # cos 容差 ≈ 2.5°
+PARALLEL_MAX_DIST = 300  # 平行线最大间距（CAD 单位，300mm）
+
+
+def _line_direction(a: list[float], b: list[float]) -> tuple[float, float]:
+    """返回线段单位方向向量，零长度返回 (0, 0)。"""
+    dx = b[0] - a[0]
+    dy = b[1] - a[1]
+    length = math.sqrt(dx * dx + dy * dy)
+    if length < 1e-10:
+        return (0.0, 0.0)
+    return (dx / length, dy / length)
+
+
+def _are_parallel(dir1: tuple[float, float], dir2: tuple[float, float]) -> bool:
+    """两个单位方向向量是否平行（同向或反向）。"""
+    dot = abs(dir1[0] * dir2[0] + dir1[1] * dir2[1])
+    return abs(dot - 1.0) < PARALLEL_ANGLE_TOLERANCE
+
+
+def _perpendicular_distance(
+    line1: list[list[float]], line2: list[list[float]]
+) -> float:
+    """计算 line2 中点到 line1 所在直线的垂直距离。"""
+    a1, b1 = line1[0], line1[1]
+    dx = b1[0] - a1[0]
+    dy = b1[1] - a1[1]
+    # line1: -dy*x + dx*y + c = 0
+    a, b = -dy, dx
+    c = -(a * a1[0] + b * a1[1])
+
+    mid_x = (line2[0][0] + line2[1][0]) / 2
+    mid_y = (line2[0][1] + line2[1][1]) / 2
+    return abs(a * mid_x + b * mid_y + c) / math.sqrt(a * a + b * b)
+
+
+def _project_onto_line(
+    pt: list[float], line: list[list[float]]
+) -> float:
+    """将点投影到线段所在直线的参数坐标 t ∈ [0, 1]。"""
+    a, b = line[0], line[1]
+    dx = b[0] - a[0]
+    dy = b[1] - a[1]
+    len_sq = dx * dx + dy * dy
+    if len_sq < 1e-10:
+        return 0.0
+    t = ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / len_sq
+    return t
+
+
+def _segments_overlap(
+    line1: list[list[float]], line2: list[list[float]]
+) -> bool:
+    """线段 line1 和 line2 在投影方向是否有重叠。"""
+    # 使用 line1 的方向投影所有端点
+    dx = line1[1][0] - line1[0][0]
+    dy = line1[1][1] - line1[0][1]
+    if dx * dx + dy * dy < 1e-10:
+        return False
+
+    def proj(pt: list[float]) -> float:
+        return pt[0] * dx + pt[1] * dy
+
+    min1 = min(proj(line1[0]), proj(line1[1]))
+    max1 = max(proj(line1[0]), proj(line1[1]))
+    min2 = min(proj(line2[0]), proj(line2[1]))
+    max2 = max(proj(line2[0]), proj(line2[1]))
+
+    # 有重叠
+    return min1 <= max2 and min2 <= max1
+
+
+def _post_process_walls(walls: list[WallSegment]) -> list[WallSegment]:
+    """
+    墙体后处理：平行线配对、厚度计算、多边形闭合。
+
+    处理管线：
+      1. 单线墙（2 点）：查找平行配对 → 合并为一堵墙，厚度 = 平行间距
+      2. 多点墙（>2 点）：检测平行边提取厚度，否则尝试闭合
+      3. 其余保持原样
+
+    返回处理后的墙段列表。
+    """
+    if not walls:
+        return walls
+
+    result: list[WallSegment] = []
+    used: set[int] = set()
+
+    # ---- Phase 1: 单线平行配对 ----
+    for i, wall in enumerate(walls):
+        if i in used:
+            continue
+        if len(wall.points) != 2:
+            continue
+
+        dir_i = _line_direction(wall.points[0], wall.points[1])
+        if dir_i == (0.0, 0.0):
+            used.add(i)
+            continue
+
+        paired = False
+        best_j = -1
+        best_dist = float("inf")
+
+        for j, other in enumerate(walls):
+            if j <= i or j in used:
+                continue
+            if len(other.points) != 2:
+                continue
+
+            dir_j = _line_direction(other.points[0], other.points[1])
+            if dir_j == (0.0, 0.0):
+                continue
+
+            if not _are_parallel(dir_i, dir_j):
+                continue
+
+            dist = _perpendicular_distance(wall.points, other.points)
+            if dist > PARALLEL_MAX_DIST:
+                continue
+
+            if not _segments_overlap(wall.points, other.points):
+                continue
+
+            if dist < best_dist:
+                best_dist = dist
+                best_j = j
+
+        if best_j >= 0:
+            result.append(WallSegment(
+                points=wall.points,
+                height=wall.height,
+                layer=wall.layer,
+                closed=False,
+                thickness=best_dist,
+            ))
+            used.add(i)
+            used.add(best_j)
+        else:
+            # 无配对 → 默认厚度
+            result.append(WallSegment(
+                points=wall.points,
+                height=wall.height,
+                layer=wall.layer,
+                closed=False,
+                thickness=0.0,
+            ))
+            used.add(i)
+
+    # ---- Phase 2: 多点墙分析 ----
+    for i, wall in enumerate(walls):
+        if i in used:
+            continue
+        used.add(i)
+
+        pts = wall.points
+        if len(pts) <= 2:
+            result.append(wall)
+            continue
+
+        # 尝试检测平行边结构
+        thickness, centerline = _extract_wall_from_multipoint(pts)
+        if thickness > 0 and thickness <= PARALLEL_MAX_DIST:
+            result.append(WallSegment(
+                points=centerline,
+                height=wall.height,
+                layer=wall.layer,
+                closed=False,
+                thickness=thickness,
+            ))
+        else:
+            # 无法提取平行结构 → 尝试闭合
+            result.append(WallSegment(
+                points=pts,
+                height=wall.height,
+                layer=wall.layer,
+                closed=True,
+                thickness=0.0,
+            ))
+
+    return result
+
+
+def _extract_wall_from_multipoint(
+    points: list[list[float]],
+) -> tuple[float, list[list[float]]]:
+    """
+    从多点折线中检测平行墙结构。
+
+    返回 (thickness, centerline)。
+    若未检测到，返回 (0, [])。
+    """
+    if len(points) < 4:
+        return (0.0, [])
+
+    n = len(points)
+    # 构建边段
+    segments = [(points[i], points[(i + 1) % n]) for i in range(n)]
+
+    parallel_pairs: list[tuple[int, int, float]] = []  # (i, j, distance)
+
+    for i in range(n):
+        a1, b1 = segments[i]
+        dir_i = _line_direction(a1, b1)
+        if dir_i == (0.0, 0.0):
+            continue
+
+        for j in range(i + 1, n):
+            a2, b2 = segments[j]
+            dir_j = _line_direction(a2, b2)
+            if dir_j == (0.0, 0.0):
+                continue
+
+            if not _are_parallel(dir_i, dir_j):
+                continue
+
+            dist = _perpendicular_distance([a1, b1], [a2, b2])
+            if dist > PARALLEL_MAX_DIST:
+                continue
+
+            parallel_pairs.append((i, j, dist))
+
+    if not parallel_pairs:
+        return (0.0, [])
+
+    # 取最小距离作为墙厚
+    min_dist = min(p[2] for p in parallel_pairs)
+
+    # 提取中心线：平行边对的中点连线
+    centerline: list[list[float]] = []
+    for i, j, dist in parallel_pairs:
+        a1, b1 = segments[i]
+        a2, b2 = segments[j]
+        mid_a = [(a1[0] + a2[0]) / 2, (a1[1] + a2[1]) / 2]
+        mid_b = [(b1[0] + b2[0]) / 2, (b1[1] + b2[1]) / 2]
+        centerline.append(mid_a)
+        centerline.append(mid_b)
+
+    # 去重并排序
+    unique = _deduplicate_points(centerline)
+    return (min_dist, unique)
+
+
+def _deduplicate_points(
+    pts: list[list[float]], tol: float = 0.1
+) -> list[list[float]]:
+    """去重并保持顺序的简单实现。"""
+    result: list[list[float]] = []
+    for p in pts:
+        dup = False
+        for existing in result:
+            dx = existing[0] - p[0]
+            dy = existing[1] - p[1]
+            if dx * dx + dy * dy < tol * tol:
+                dup = True
+                break
+        if not dup:
+            result.append(p)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 公共 API
 # ---------------------------------------------------------------------------
 
@@ -566,9 +834,12 @@ def parse_dxf_file(file_path: str) -> dict:
         elif entity_type == "light":
             _handle_light_entity(entity, result.lights, doc)
 
+    # 墙体后处理：平行线配对、厚度计算、多边形闭合
+    result.walls = _post_process_walls(result.walls)
+
     return {
         "walls": [
-            {"points": [{"x": p[0], "y": p[1]} for p in w.points], "height": w.height, "layer": w.layer, "closed": w.closed}
+            {"points": [{"x": p[0], "y": p[1]} for p in w.points], "height": w.height, "layer": w.layer, "closed": w.closed, "thickness": w.thickness}
             for w in result.walls
         ],
         "doors": [

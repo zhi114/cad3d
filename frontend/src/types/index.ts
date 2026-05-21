@@ -10,6 +10,7 @@ export interface WallData {
   readonly height: number;
   readonly layer: string;
   readonly closed: boolean;
+  readonly thickness: number; // CAD 单位，0 表示使用默认墙厚
 }
 
 /** 门数据 */
